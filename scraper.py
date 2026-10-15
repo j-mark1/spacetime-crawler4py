@@ -1,4 +1,6 @@
 import re
+import sqlite3
+from bs4 import BeautifulSoup
 from urllib.parse import urlparse
 
 def scraper(url, resp):
@@ -15,16 +17,45 @@ def extract_next_links(url, resp):
     #         resp.raw_response.url: the url, again
     #         resp.raw_response.content: the content of the page!
     # Return a list with the hyperlinks (as strings) scrapped from resp.raw_response.content
-    return list()
+
+    # Ignore all sites that do not return status 200
+    if (resp.status != 200):
+        return list()
+
+    next_links = []
+
+    soup = BeautifulSoup(resp.raw_response.content, "lxml")
+
+    # Retrieve all anchor link tags and hrefs
+    all_anchors = soup.find_all("a")
+    for anchor in all_anchors:
+        url = anchor.get("href")
+        next_links.append(url)
+
+    return next_links
 
 def is_valid(url):
     # Decide whether to crawl this url or not. 
     # If you decide to crawl it, return True; otherwise return False.
     # There are already some conditions that return False.
     try:
+        allowed_domains = ["ics.uci.edu", "cs.uci.edu", "informatics.uci.edu", "stat.uci.edu"]
         parsed = urlparse(url)
+
         if parsed.scheme not in set(["http", "https"]):
             return False
+
+        # Check that the domains in the list of allowed domains are the domain itself of the url or a subdomain
+        valid_domain = False
+        for domain in allowed_domains:
+            if parsed.hostname == domain or parsed.hostname.endswith("." + domain):
+                valid_domain = True
+            # Determine that url is a subdomain of the ics.uci.edu domain
+            if parsed.hostname.endswith("." + "ics.uci.edu"):
+                add_ics_subdomain(parsed.scheme, parsed.hostname, url)
+        if not valid_domain:
+            return False
+        
         return not re.match(
             r".*\.(css|js|bmp|gif|jpe?g|ico"
             + r"|png|tiff?|mid|mp2|mp3|mp4"
@@ -38,3 +69,26 @@ def is_valid(url):
     except TypeError:
         print ("TypeError for ", parsed)
         raise
+
+# Store an ics subdomain in a sqllite database and increment count if already exists
+def add_ics_subdomain(scheme, hostname, url):
+    subdomain = f"{scheme.lower()}://{hostname.lower()}"
+
+    conn = sqlite3.connect("ics_subdomains.db")
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS ics_subdomains (
+            url TEXT PRIMARY KEY,
+            subdomain,
+            count INTEGER DEFAULT 0
+        )
+    """)
+    conn.commit()
+
+    cursor.execute("""
+        INSERT INTO ics_subdomains (url, subdomain, count) 
+        VALUES (?, ?, 1)
+        ON CONFLICT(url) DO UPDATE SET count = count + 1
+    """, (url, subdomain,))
+    conn.commit()
