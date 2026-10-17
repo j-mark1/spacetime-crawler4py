@@ -1,7 +1,7 @@
 import re
 import sqlite3
 from bs4 import BeautifulSoup
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urldefrag
 
 def scraper(url, resp):
     links = extract_next_links(url, resp)
@@ -50,13 +50,10 @@ def is_valid(url):
         for domain in allowed_domains:
             if parsed.hostname == domain or parsed.hostname.endswith("." + domain):
                 valid_domain = True
-            # Determine that url is a subdomain of the ics.uci.edu domain
-            if parsed.hostname.endswith("." + "ics.uci.edu"):
-                add_ics_subdomain(parsed.scheme, parsed.hostname, url)
         if not valid_domain:
             return False
-        
-        return not re.match(
+
+        if not re.match(
             r".*\.(css|js|bmp|gif|jpe?g|ico"
             + r"|png|tiff?|mid|mp2|mp3|mp4"
             + r"|wav|avi|mov|mpeg|ram|m4v|mkv|ogg|ogv|pdf"
@@ -64,31 +61,35 @@ def is_valid(url):
             + r"|data|dat|exe|bz2|tar|msi|bin|7z|psd|dmg|iso"
             + r"|epub|dll|cnf|tgz|sha1"
             + r"|thmx|mso|arff|rtf|jar|csv"
-            + r"|rm|smil|wmv|swf|wma|zip|rar|gz)$", parsed.path.lower())
+            + r"|rm|smil|wmv|swf|wma|zip|rar|gz)$", parsed.path.lower()):
+            add_unique_page(parsed.scheme, parsed.hostname, urldefrag(url)[0])
+            return True
 
     except TypeError:
         print ("TypeError for ", parsed)
         raise
 
-# Store an ics subdomain in a sqllite database and increment count if already exists
-def add_ics_subdomain(scheme, hostname, url):
+# Store unique pages (url, subdomain, and frequency count) in a sqllite database and increment count if the url already exists
+def add_unique_page(scheme, hostname, url):
     subdomain = f"{scheme.lower()}://{hostname.lower()}"
 
-    conn = sqlite3.connect("ics_subdomains.db")
+    conn = sqlite3.connect("unique_pages.db")
     cursor = conn.cursor()
 
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS ics_subdomains (
+        CREATE TABLE IF NOT EXISTS unique_pages (
             url TEXT PRIMARY KEY,
-            subdomain,
+            subdomain TEXT,
             count INTEGER DEFAULT 0
         )
     """)
     conn.commit()
 
     cursor.execute("""
-        INSERT INTO ics_subdomains (url, subdomain, count) 
+        INSERT INTO unique_pages (url, subdomain, count) 
         VALUES (?, ?, 1)
         ON CONFLICT(url) DO UPDATE SET count = count + 1
     """, (url, subdomain,))
     conn.commit()
+
+    conn.close()
