@@ -30,7 +30,9 @@ def extract_next_links(url, resp):
     all_anchors = soup.find_all("a")
     for anchor in all_anchors:
         url = anchor.get("href")
-        next_links.append(url)
+
+        # Defragment link before appending
+        next_links.append(urldefrag(url)[0])
 
     return next_links
 
@@ -62,8 +64,9 @@ def is_valid(url):
             + r"|epub|dll|cnf|tgz|sha1"
             + r"|thmx|mso|arff|rtf|jar|csv"
             + r"|rm|smil|wmv|swf|wma|zip|rar|gz)$", parsed.path.lower()):
-            add_unique_page(parsed.scheme, parsed.hostname, urldefrag(url)[0])
+            add_unique_page(parsed.scheme, parsed.hostname, url)
             return True
+        return False
 
     except TypeError:
         print ("TypeError for ", parsed)
