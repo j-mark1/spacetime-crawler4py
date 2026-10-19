@@ -1,0 +1,3 @@
+- Is it up to frontier to deal with urls? Like dealing with duplicates, case sensitivity
+    But then worker has to make sure url is valid. Dont really like splitting this role into multiple classes
+

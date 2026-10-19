@@ -18,6 +18,16 @@ class Worker(Thread):
         super().__init__(daemon=True)
         
     def run(self):
+        """
+        while frontier has stuff
+            get url
+            download url
+            get other urls from downloaded page
+            add them to frontier
+            mark this url as complete
+            wait
+
+        """
         while True:
             tbd_url = self.frontier.get_tbd_url()
             if not tbd_url:

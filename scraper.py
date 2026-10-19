@@ -1,9 +1,11 @@
 import re
 from urllib.parse import urlparse
+from bs4 import BeautifulSoup
+from urllib.parse import urlparse, urldefrag, urljoin
 
 def scraper(url, resp):
     links = extract_next_links(url, resp)
-    return [link for link in links if is_valid(link)]
+    return [link for link in links if is_valid(link)] # apply valid filter here
 
 def extract_next_links(url, resp):
     # Implementation required.
@@ -15,16 +17,54 @@ def extract_next_links(url, resp):
     #         resp.raw_response.url: the url, again
     #         resp.raw_response.content: the content of the page!
     # Return a list with the hyperlinks (as strings) scrapped from resp.raw_response.content
-    return list()
+
+    if resp.status != 200 or resp.raw_response.content is None:
+        return list()
+
+    next_links = []
+
+    soup = BeautifulSoup(resp.raw_response.content, "lxml")
+
+    # Retrieve all anchor link tags and hrefs
+    all_anchors = soup.find_all("a")
+    for anchor in all_anchors:
+        anchor_url = anchor.get("href")
+        if not anchor_url:
+            continue
+        anchor_url = anchor_url.strip()
+
+        try:
+            # Ensure url is absolute
+            absolute_url = urljoin(resp.url, anchor_url)
+            # Defragment link before appending (get rid of # and stuff past it)
+            defragmented_url = urldefrag(absolute_url)[0]
+        except ValueError:
+            # probably malformed url
+            continue
+
+        next_links.append(defragmented_url)
+
+    return next_links
 
 def is_valid(url):
     # Decide whether to crawl this url or not. 
     # If you decide to crawl it, return True; otherwise return False.
     # There are already some conditions that return False.
+
+    allowed_domains = ["ics.uci.edu", "cs.uci.edu", "informatics.uci.edu", "stat.uci.edu"]
     try:
         parsed = urlparse(url)
         if parsed.scheme not in set(["http", "https"]):
             return False
+        
+        valid_domain = False
+        for domain in allowed_domains:
+            if parsed.hostname == domain or parsed.hostname.endswith("." + domain):
+                valid_domain = True
+
+        if not valid_domain:
+            return False
+        
         return not re.match(
             r".*\.(css|js|bmp|gif|jpe?g|ico"
             + r"|png|tiff?|mid|mp2|mp3|mp4"

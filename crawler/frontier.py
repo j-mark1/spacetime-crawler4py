@@ -6,6 +6,7 @@ from queue import Queue, Empty
 
 from utils import get_logger, get_urlhash, normalize
 from scraper import is_valid
+from urllib.parse import urlparse
 
 class Frontier(object):
     def __init__(self, config, restart):
