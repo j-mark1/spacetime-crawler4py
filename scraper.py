@@ -1,7 +1,7 @@
 import re
 import sqlite3
 from bs4 import BeautifulSoup
-from urllib.parse import urlparse, urldefrag
+from urllib.parse import urlparse, urldefrag, urljoin
 
 def scraper(url, resp):
     links = extract_next_links(url, resp)
@@ -29,10 +29,16 @@ def extract_next_links(url, resp):
     # Retrieve all anchor link tags and hrefs
     all_anchors = soup.find_all("a")
     for anchor in all_anchors:
-        url = anchor.get("href")
+        anchor_url = anchor.get("href")
 
-        # Defragment link before appending
-        next_links.append(urldefrag(url)[0])
+        if anchor_url:
+            # Ensure url is absolute
+            absolute_url = urljoin(resp.url, anchor_url)
+
+            # Defragment link before appending
+            defragmented_url = urldefrag(absolute_url)[0]
+
+            next_links.append(defragmented_url)
 
     return next_links
 
