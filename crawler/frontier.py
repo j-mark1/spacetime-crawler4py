@@ -112,8 +112,13 @@ class Frontier(object):
                     return None
 
                 wait_time = (soonest - now) if soonest is not None else self.config.time_delay
-            # out of lock
-            self.logger.info(f"Failed to obtain a lock. Waiting for {wait_time} seconds")
+            # out of lock now
+            log_str = f"Failed to obtain a lock. Waiting for {wait_time} seconds\n"
+            log_str += f"\t Current Time: {time.monotonic()}"
+            for i in range(len(self.domain_frontiers)):
+                log_str += f"\tFrontier {i}: {self.domain_frontiers[i].last_access}"
+            self.logger.info(log_str)
+
             time.sleep(max(wait_time, 0.05)) # arbitrary min wait time, can be whatever
 
 
@@ -123,7 +128,7 @@ class Frontier(object):
         host = urlparse(url).hostname or ""
         for domain_frontier in self.domain_frontiers:
             if host == domain_frontier.domain or host.endswith("." + domain_frontier.domain):
-                self.logger.info(f"Adding {url} to {domain_frontier.domain} frontier")
+                # self.logger.info(f"Adding {url} to {domain_frontier.domain} frontier")
                 domain_frontier.queue.append(url)
                 break
         
@@ -140,11 +145,13 @@ class Frontier(object):
                 self._add_url_to_domain_queue(url)
     
     def mark_url_complete(self, url):
-        urlhash = get_urlhash(url)
-        if urlhash not in self.save:
-            # This should not happen.
-            self.logger.error(
-                f"Completed url {url}, but have not seen it before.")
+        with self.lock:
+            urlhash = get_urlhash(url)
+            if urlhash not in self.save:
+                # This should not happen.
+                self.logger.error(
+                    f"Completed url {url}, but have not seen it before.")
 
-        self.save[urlhash] = (url, True)
-        self.save.sync()
+            self.save[urlhash] = (url, True)
+            self.save.sync()
+            self.in_flight -= 1

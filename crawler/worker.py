@@ -19,6 +19,7 @@ class Worker(Thread):
         
     def run(self):
         while True:
+            
             tbd_url = self.frontier.get_tbd_url()
             if not tbd_url:
                 self.logger.info("Frontier is empty. Stopping Crawler.")
@@ -27,8 +28,14 @@ class Worker(Thread):
             self.logger.info(
                 f"Downloaded {tbd_url}, status <{resp.status}>, "
                 f"using cache {self.config.cache_server}.")
+
+            # Seems like main bottleneck
+            now = time.monotonic()
             scraped_urls = scraper.scraper(tbd_url, resp)
+            self.logger.info(f"Scraped in {time.monotonic() - now} seconds")
+
             for scraped_url in scraped_urls:
                 self.frontier.add_url(scraped_url)
             self.frontier.mark_url_complete(tbd_url)
-            time.sleep(self.config.time_delay)
+            # self.logger.info(f"Worker loop iteration completed in {time.monotonic() - now} seconds")
+
