@@ -19,7 +19,7 @@ def extract_next_links(url, resp):
     # Return a list with the hyperlinks (as strings) scrapped from resp.raw_response.content
 
     # Ignore all sites that do not return status 200
-    if (resp.status != 200):
+    if (resp.status != 200 or resp.url is None):
         return list()
 
     next_links = []
@@ -31,15 +31,16 @@ def extract_next_links(url, resp):
     for anchor in all_anchors:
         anchor_url = anchor.get("href")
 
-        if anchor_url:
-            # Ensure url is absolute
-            absolute_url = urljoin(resp.url, anchor_url)
+        if not isinstance(anchor_url, str):
+            continue
 
-            # Defragment link before appending
-            defragmented_url = urldefrag(absolute_url)[0]
+        # Ensure url is absolute
+        absolute_url = urljoin(resp.url, anchor_url)
 
-            next_links.append(defragmented_url)
+        # Defragment link before appending
+        defragmented_url = urldefrag(absolute_url)[0]
 
+        next_links.append(defragmented_url)
     return next_links
 
 def is_valid(url):
