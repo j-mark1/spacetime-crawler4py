@@ -18,9 +18,17 @@ def extract_next_links(url, resp):
     #         resp.raw_response.content: the content of the page!
     # Return a list with the hyperlinks (as strings) scrapped from resp.raw_response.content
 
-    # Ignore all sites that do not return status 200
-    if (resp.status != 200 or resp.url is None):
+    # Ignore all sites that do not return status 200. Also ignore sites where content cannot be downloaded or where there is no content.
+    # NOTE: Crawler already traverses through redirect to retrieve redirected content, no need to check 300s status codes
+    if (resp.status != 200 or not resp.raw_response or not resp.raw_response.content):
         return list()
+    
+    # Store current downloaded page (already confirmed by is_valid to be valid) into db.
+    # Moved to this spot to consider redirected urls and ensure that the actual page of a redirected url is being stored rather than just all urls before redirect.
+    # How? resp.raw_response.url is used to consider only redirected url (url that is actually retrieved) if redirect occurs.
+    # As a result, only the actual page's url is processed and stored in db.
+    parsed = urlparse(resp.raw_response.url)
+    add_unique_page(parsed.scheme, parsed.hostname, resp.raw_response.url)
 
     next_links = []
 
@@ -71,7 +79,6 @@ def is_valid(url):
             + r"|epub|dll|cnf|tgz|sha1"
             + r"|thmx|mso|arff|rtf|jar|csv"
             + r"|rm|smil|wmv|swf|wma|zip|rar|gz)$", parsed.path.lower()):
-            add_unique_page(parsed.scheme, parsed.hostname, url)
             return True
         return False
 
