@@ -85,6 +85,10 @@ def is_valid(url):
         print ("TypeError for ", parsed)
         raise
 
+def tokenizer():
+    #tokenize information
+    pass
+
 # Store unique pages (url, subdomain, and frequency count) in a sqllite database and increment count if the url already exists
 def add_unique_page(scheme, hostname, url):
     subdomain = f"{scheme.lower()}://{hostname.lower()}"
@@ -109,3 +113,5 @@ def add_unique_page(scheme, hostname, url):
     conn.commit()
 
     conn.close()
+
+
