@@ -70,7 +70,7 @@ class Worker(Thread):
                         self.frontier.add_url(scraped_url) # unclean url. will be cleaned in this function
             self.frontier.mark_url_complete(tbd_url)
             # self.logger.info(f"Worker loop iteration completed in {time.monotonic() - now} seconds")
-            time.sleep(self.config.time_delay)
+
     
     # Store unique pages (url, subdomain, and frequency count) in a sqllite database and increment count if the url already exists
     def add_unique_page(self, scheme, hostname, url):
