@@ -29,10 +29,9 @@ class Worker(Thread):
                 f"Downloaded {tbd_url}, status <{resp.status}>, "
                 f"using cache {self.config.cache_server}.")
 
-            # Seems like main bottleneck
             now = time.monotonic()
             scraped_urls = scraper.scraper(tbd_url, resp)
-            self.logger.info(f"Scraped in {time.monotonic() - now} seconds")
+            self.logger.info(f"Completed scaper.scraper() in {time.monotonic() - now} seconds")
 
             for scraped_url in scraped_urls:
                 self.frontier.add_url(scraped_url)
