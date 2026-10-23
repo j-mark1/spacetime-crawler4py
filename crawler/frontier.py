@@ -41,7 +41,6 @@ class Frontier(object):
                            # add url increments, mark complete decrements
         self.lock = threading.Lock() # Lock for the entire frontier object
 
-        self.to_be_downloaded = list()
 
 
         # TODO deal with saves later
@@ -68,16 +67,35 @@ class Frontier(object):
                     self.add_url(url)
 
     def _parse_save_file(self):
-        ''' This function can be overridden for alternate saving techniques. '''
+
         total_count = len(self.save)
-        tbd_count = 0
-        for url, completed in self.save.values():
+        pending = []
+        max_seq = -1
+        not_added_count = 0
+        # Restore valid urls that were not visited
+        for entry in self.save.values():
+            if len(entry) == 3:
+                url, completed, seq = entry
+            else:
+                url, completed = entry
+                seq = 0
+            max_seq = max(max_seq, seq)
             if not completed and is_valid(url):
-                self.to_be_downloaded.append(url)
-                tbd_count += 1
+                pending.append((seq, url))
+            else:
+                not_added_count += 1
+
+        # Restore order based on the sequence (doesnt really matter but having the original order is better for breadth)
+        pending.sort() 
+        for _, url in pending:
+            self._add_url_to_domain_queue(url) # url already normalized
+
+        self.count = max_seq + 1 # restore count
         self.logger.info(
-            f"Found {tbd_count} urls to be downloaded from {total_count} "
-            f"total urls discovered.")
+            f"Resumed {len(pending)} pending urls from {total_count} "
+            f"total urls discovered. "
+            f"{not_added_count} urls not added"
+        )
 
     def get_tbd_url(self):
         """
@@ -153,7 +171,8 @@ class Frontier(object):
             url = normalize(url)
             urlhash = get_urlhash(url)
             if urlhash not in self.save:
-                self.save[urlhash] = (url, False)
+                self.save[urlhash] = (url, False, self.count)
+                self.count += 1
                 self.save.sync()
 
                 # Add to domain queue
@@ -162,11 +181,16 @@ class Frontier(object):
     def mark_url_complete(self, url):
         with self.lock:
             urlhash = get_urlhash(url)
-            if urlhash not in self.save:
-                # This should not happen.
-                self.logger.error(
-                    f"Completed url {url}, but have not seen it before.")
+            old = self.save.get(urlhash)
+            if old is None:
+                # Should not happen
+                self.logger.error(f"Completed url {url}, but have not seen it before.")
+                seq = -1
+            else:
+                # old = (url, completed, seq) if len is 3
+                seq = old[2] if len(old) == 3 else -1 
 
-            self.save[urlhash] = (url, True)
+
+            self.save[urlhash] = (url, True, seq)
             self.save.sync()
             self.in_flight -= 1
