@@ -1,11 +1,10 @@
 import re
-import sqlite3
 from bs4 import BeautifulSoup
-from urllib.parse import urlparse, urldefrag, urljoin
+from urllib.parse import urlparse, urldefrag, urljoin, parse_qs
 
 def scraper(url, resp):
     links = extract_next_links(url, resp)
-    return [link for link in links if is_valid(link)]
+    return [link for link in links if is_valid(link) and not is_trap_url(link)]
 
 def extract_next_links(url, resp):
     # Implementation required.
@@ -17,18 +16,6 @@ def extract_next_links(url, resp):
     #         resp.raw_response.url: the url, again
     #         resp.raw_response.content: the content of the page!
     # Return a list with the hyperlinks (as strings) scrapped from resp.raw_response.content
-
-    # Ignore all sites that do not return status 200. Also ignore sites where content cannot be downloaded or where there is no content.
-    # NOTE: Crawler already traverses through redirect to retrieve redirected content, no need to check 300s status codes
-    if (resp.status != 200 or not resp.raw_response or not resp.raw_response.content):
-        return list()
-    
-    # Store current downloaded page (already confirmed by is_valid to be valid) into db.
-    # Moved to this spot to consider redirected urls and ensure that the actual page of a redirected url is being stored rather than just all urls before redirect.
-    # How? resp.raw_response.url is used to consider only redirected url (url that is actually retrieved) if redirect occurs.
-    # As a result, only the actual page's url is processed and stored in db.
-    parsed = urlparse(resp.raw_response.url)
-    add_unique_page(parsed.scheme, parsed.hostname, resp.raw_response.url)
 
     next_links = []
 
@@ -65,12 +52,12 @@ def is_valid(url):
         # Check that the domains in the list of allowed domains are the domain itself of the url or a subdomain
         valid_domain = False
         for domain in allowed_domains:
-            if parsed.hostname == domain or parsed.hostname.endswith("." + domain):
+            if parsed.hostname and (parsed.hostname == domain or parsed.hostname.endswith("." + domain)):
                 valid_domain = True
         if not valid_domain:
             return False
 
-        if not re.match(
+        return not re.match(
             r".*\.(css|js|bmp|gif|jpe?g|ico"
             + r"|png|tiff?|mid|mp2|mp3|mp4"
             + r"|wav|avi|mov|mpeg|ram|m4v|mkv|ogg|ogv|pdf"
@@ -78,9 +65,8 @@ def is_valid(url):
             + r"|data|dat|exe|bz2|tar|msi|bin|7z|psd|dmg|iso"
             + r"|epub|dll|cnf|tgz|sha1"
             + r"|thmx|mso|arff|rtf|jar|csv"
-            + r"|rm|smil|wmv|swf|wma|zip|rar|gz)$", parsed.path.lower()):
-            return True
-        return False
+            + r"|rm|smil|wmv|swf|wma|zip|rar|gz"
+            + r"|cpp|cc|c|h|txt|dev|admin)$", parsed.path.lower())
 
     except TypeError:
         print ("TypeError for ", parsed)
@@ -90,29 +76,27 @@ def tokenizer():
     #tokenize information
     pass
 
-# Store unique pages (url, subdomain, and frequency count) in a sqllite database and increment count if the url already exists
-def add_unique_page(scheme, hostname, url):
-    subdomain = f"{scheme.lower()}://{hostname.lower()}"
+def is_trap_url(url):
+    parsed = urlparse(url)
 
-    conn = sqlite3.connect("unique_pages.db")
-    cursor = conn.cursor()
+    # Skip paths that are way too long
+    if (len(parsed.path.split('/')) > 6):
+        return True
+    # Block non-standard ports (allow only None, 80, 443)
+    if parsed.port and parsed.port not in (80, 443):
+        return False
 
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS unique_pages (
-            url TEXT PRIMARY KEY,
-            subdomain TEXT,
-            count INTEGER DEFAULT 0
-        )
-    """)
-    conn.commit()
+    query_params = parse_qs(parsed.query)
+    blacklisted_queries = ["do", "idx", "C", "C", "C", "C", "O", "O", "MA", "SA", "skin"]
 
-    cursor.execute("""
-        INSERT INTO unique_pages (url, subdomain, count) 
-        VALUES (?, ?, 1)
-        ON CONFLICT(url) DO UPDATE SET count = count + 1
-    """, (url, subdomain,))
-    conn.commit()
+    # Avoid duplicate params
+    if any(len(params) > 1 for params in query_params.values()):
+        return True
 
-    conn.close()
+    # Avoid params that could lead to infinite traps
+    for blacklisted_query in blacklisted_queries:
+        if blacklisted_query in query_params.keys():
+            return True
 
-
+    return False
+    
