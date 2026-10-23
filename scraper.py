@@ -1,10 +1,20 @@
 import re
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse, urldefrag, urljoin, parse_qs
+from crawl_extras import page_stats
 
 def scraper(url, resp):
+    if not page_stats.process_page(url, resp):
+        return []
     links = extract_next_links(url, resp)
-    return [link for link in links if is_valid(link) and not is_trap_url(link)]
+    return [link for link in links if is_crawlable(link)]
+
+# a malformed url skips instead of crashing the worker
+def is_crawlable(url):
+    try:
+        return is_valid(url) and not is_trap_url(url)
+    except ValueError:
+        return False
 
 def extract_next_links(url, resp):
     # Implementation required.
@@ -76,10 +86,6 @@ def is_valid(url):
     except TypeError:
         print ("TypeError for ", parsed)
         raise
-
-def tokenizer():
-    #tokenize information
-    pass
 
 def is_trap_url(url):
     parsed = urlparse(url)
