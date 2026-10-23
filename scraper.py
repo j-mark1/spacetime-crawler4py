@@ -1,10 +1,16 @@
 import re
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse, urldefrag, urljoin, parse_qs
+from crawl_extras import page_stats
 
 def scraper(url, resp):
+    if not page_stats.process_page(url, resp):
+        return []
     links = extract_next_links(url, resp)
-    return [link for link in links if is_valid(link) and not is_trap_url(link)]
+    try:
+        return [link for link in links if is_valid(link) and not is_trap_url(link)]
+    except ValueError:
+        return False
 
 def extract_next_links(url, resp):
     # Implementation required.
