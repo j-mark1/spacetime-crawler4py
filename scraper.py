@@ -84,7 +84,7 @@ def is_trap_url(url):
         return True
     # Block non-standard ports (allow only None, 80, 443)
     if parsed.port and parsed.port not in (80, 443):
-        return False
+        return True
 
     query_params = parse_qs(parsed.query)
     blacklisted_queries = ["do", "idx", "C", "C", "C", "C", "O", "O", "MA", "SA", "skin"]
