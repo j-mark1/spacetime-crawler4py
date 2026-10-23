@@ -19,17 +19,17 @@ class Worker(Thread):
         assert {getsource(scraper).find(req) for req in {"from urllib.request import", "import urllib.request"}} == {-1}, "Do not use urllib.request in scraper.py"
         super().__init__(daemon=True)
 
-        # Initialize connection to database
-        self.conn = sqlite3.connect("unique_pages.db", check_same_thread=False)
-        self.cursor = self.conn.cursor()
-        self.cursor.execute("PRAGMA journal_mode=WAL;")
-        self.cursor.execute("""
-            CREATE TABLE IF NOT EXISTS unique_pages (
-                url TEXT PRIMARY KEY,
-                subdomain TEXT
-            )
-        """)
-        self.conn.commit()
+        # # Initialize connection to database
+        # self.conn = sqlite3.connect("unique_pages.db", check_same_thread=False)
+        # self.cursor = self.conn.cursor()
+        # self.cursor.execute("PRAGMA journal_mode=WAL;")
+        # self.cursor.execute("""
+        #     CREATE TABLE IF NOT EXISTS unique_pages (
+        #         url TEXT PRIMARY KEY,
+        #         subdomain TEXT
+        #     )
+        # """)
+        # self.conn.commit()
         
     def run(self):
         while True:
@@ -37,7 +37,8 @@ class Worker(Thread):
             tbd_url = self.frontier.get_tbd_url()
             if not tbd_url:
                 self.logger.info("Frontier is empty. Stopping Crawler.")
-                self.conn.close()
+                # TODO close frontier sql connection
+                # self.conn.close()
                 break
             resp = download(tbd_url, self.config, self.logger)
             self.logger.info(
@@ -51,18 +52,21 @@ class Worker(Thread):
             # NOTE: Crawler already traverses through redirect to retrieve redirected content, no need to check 300s status codes
             if (resp.status == 200 and resp.raw_response and resp.raw_response.content):
                 # Check if url already exists in the db
-                self.cursor.execute("""
-                    SELECT EXISTS(SELECT 1 FROM unique_pages WHERE url = ?);
-                """, (resp.raw_response.url, ))
-                exists = self.cursor.fetchone()[0]
-
+                exists = self.frontier.url_exist_in_db(resp.raw_response.url)
+                # self.cursor.execute("""
+                #     SELECT EXISTS(SELECT 1 FROM unique_pages WHERE url = ?);
+                # """, (resp.raw_response.url, ))
+                # exists = self.cursor.fetchone()[0]
                 if (not exists):
                     # Store current downloaded page (already confirmed by is_valid to be valid) into db.
                     # Moved to this spot to consider redirected urls and ensure that the actual page of a redirected url is being stored rather than just all urls before redirect.
                     # How? resp.raw_response.url is used to consider only redirected url (url that is actually retrieved) if redirect occurs.
                     # As a result, only the actual page's url is processed and stored in db.
+
+                    # TODO get the pages hash, add it iff not similar or not exact match
+
                     parsed = urlparse(resp.raw_response.url)
-                    self.add_unique_page(parsed.scheme, parsed.hostname, resp.raw_response.url)
+                    self.frontier.add_unique_page_to_db(parsed.scheme, parsed.hostname, resp.raw_response.url)
 
                     scraped_urls = scraper.scraper(tbd_url, resp)
                     self.logger.info(f"Completed scaper.scraper() in {time.monotonic() - now} seconds")
@@ -72,12 +76,3 @@ class Worker(Thread):
             # self.logger.info(f"Worker loop iteration completed in {time.monotonic() - now} seconds")
 
     
-    # Store unique pages (url, subdomain, and frequency count) in a sqllite database and increment count if the url already exists
-    def add_unique_page(self, scheme, hostname, url):
-        subdomain = f"{scheme.lower()}://{hostname.lower()}"
-
-        self.cursor.execute("""
-            INSERT INTO unique_pages (url, subdomain) 
-            VALUES (?, ?)
-        """, (url, subdomain,))
-        self.conn.commit()

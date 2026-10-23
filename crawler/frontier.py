@@ -1,6 +1,7 @@
 import os
 import shelve
 
+import sqlite3
 from threading import Thread, RLock, Lock
 import threading
 from collections import deque
@@ -41,6 +42,12 @@ class Frontier(object):
                            # add url increments, mark complete decrements
         self.lock = threading.Lock() # Lock for the entire frontier object
 
+        # SQL Connection setup
+        self.conn = sqlite3.connect("unique_pages.db", check_same_thread=False)
+        self.cursor = self.conn.cursor()
+        self.cursor.execute("PRAGMA journal_mode=WAL;")
+
+
 
 
         # TODO deal with saves later
@@ -56,18 +63,37 @@ class Frontier(object):
             os.remove(self.config.save_file)
         # Load existing save file, or create one if it does not exist.
         self.save = shelve.open(self.config.save_file)
+
+
         if restart:
+            # Delete old table
+            self.cursor.execute("""
+                DROP TABLE IF EXISTS unique_pages;     
+            """)
+            self.conn.commit()
+
+
             for url in self.config.seed_urls:
                 self.add_url(url)
         else:
             # Set the frontier state with contents of save file.
-            self._parse_save_file()
+            self._parse_save_file() # also restores the urls to the queues
             if not self.save:
                 for url in self.config.seed_urls:
                     self.add_url(url)
 
-    def _parse_save_file(self):
+        # database stuff after drop table. MANAGED BY FRONTIER BECAUSE FRONTIER HAS THE LOCK
+        # FRONTIER ENFORCES CONCURENCY
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS unique_pages (
+                url TEXT PRIMARY KEY,
+                subdomain TEXT
+            )
+        """)
+        self.conn.commit()
 
+    def _parse_save_file(self):
+        
         total_count = len(self.save)
         pending = []
         max_seq = -1
@@ -194,3 +220,23 @@ class Frontier(object):
             self.save[urlhash] = (url, True, seq)
             self.save.sync()
             self.in_flight -= 1
+
+
+    def url_exist_in_db(self, url):
+        exists = False
+        with self.lock:
+            self.cursor.execute("""
+                SELECT EXISTS(SELECT 1 FROM unique_pages WHERE url = ?);
+            """, (url, ))
+            exists = self.cursor.fetchone()[0]
+        return exists
+
+    def add_unique_page_to_db(self, scheme, hostname, url):
+        with self.lock:
+            subdomain = f"{scheme.lower()}://{hostname.lower()}"
+
+            self.cursor.execute("""
+                INSERT INTO unique_pages (url, subdomain) 
+                VALUES (?, ?)
+            """, (url, subdomain,))
+            self.conn.commit()
