@@ -5,7 +5,6 @@ from utils.download import download
 from utils import get_logger
 import scraper
 import time
-import sqlite3
 from urllib.parse import urlparse
 
 
@@ -19,17 +18,6 @@ class Worker(Thread):
         assert {getsource(scraper).find(req) for req in {"from urllib.request import", "import urllib.request"}} == {-1}, "Do not use urllib.request in scraper.py"
         super().__init__(daemon=True)
 
-        # # Initialize connection to database
-        # self.conn = sqlite3.connect("unique_pages.db", check_same_thread=False)
-        # self.cursor = self.conn.cursor()
-        # self.cursor.execute("PRAGMA journal_mode=WAL;")
-        # self.cursor.execute("""
-        #     CREATE TABLE IF NOT EXISTS unique_pages (
-        #         url TEXT PRIMARY KEY,
-        #         subdomain TEXT
-        #     )
-        # """)
-        # self.conn.commit()
         
     def run(self):
         while True:
@@ -37,15 +25,14 @@ class Worker(Thread):
             tbd_url = self.frontier.get_tbd_url()
             if not tbd_url:
                 self.logger.info("Frontier is empty. Stopping Crawler.")
-                # TODO close frontier sql connection
-                # self.conn.close()
+                self.frontier.close_db()
                 break
             resp = download(tbd_url, self.config, self.logger)
             self.logger.info(
                 f"Downloaded {tbd_url}, status <{resp.status}>, "
                 f"using cache {self.config.cache_server}.")
 
-            now = time.monotonic()
+            start = time.monotonic()
 
             # Ignore all sites that do not return status 200 and already exist in db.
             # Also ignore sites where content cannot be downloaded or where there is no content.
@@ -69,10 +56,10 @@ class Worker(Thread):
                     self.frontier.add_unique_page_to_db(parsed.scheme, parsed.hostname, resp.raw_response.url)
 
                     scraped_urls = scraper.scraper(tbd_url, resp)
-                    self.logger.info(f"Completed scaper.scraper() in {time.monotonic() - now} seconds")
+                    self.logger.info(f"Completed scaper.scraper() in {time.monotonic() - start} seconds")
                     for scraped_url in scraped_urls:
                         self.frontier.add_url(scraped_url) # unclean url. will be cleaned in this function
             self.frontier.mark_url_complete(tbd_url)
-            # self.logger.info(f"Worker loop iteration completed in {time.monotonic() - now} seconds")
+            self.logger.info(f"Worker loop iteration completed in {time.monotonic() - start} seconds")
 
     

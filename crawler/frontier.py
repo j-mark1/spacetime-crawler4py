@@ -240,3 +240,7 @@ class Frontier(object):
                 VALUES (?, ?)
             """, (url, subdomain,))
             self.conn.commit()
+
+    def close_db(self):
+        with self.lock:
+            self.conn.close()
