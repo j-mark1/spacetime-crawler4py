@@ -7,8 +7,12 @@ def scraper(url, resp):
     if not page_stats.process_page(url, resp):
         return []
     links = extract_next_links(url, resp)
+    return [link for link in links if is_crawlable(link)]
+
+# a malformed url skips instead of crashing the worker
+def is_crawlable(url):
     try:
-        return [link for link in links if is_valid(link) and not is_trap_url(link)]
+        return is_valid(url) and not is_trap_url(url)
     except ValueError:
         return False
 
