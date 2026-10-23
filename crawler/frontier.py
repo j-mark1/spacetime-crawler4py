@@ -9,7 +9,7 @@ from enum import Enum
 import time
 from urllib.parse import urlparse
 
-from utils import get_logger, get_urlhash, normalize
+from utils import get_logger, get_urlhash, host_alias, normalize
 from scraper import is_valid
 
 
@@ -33,6 +33,9 @@ class Frontier(object):
 
         # 1 frontier per domain (ics, cs, informatics, stat)
         self.domain_frontiers = [Domain(url) for url in config.seed_urls] 
+        self.domain_frontiers = self.domain_frontiers[::-1] # reverse because we want ics frontier last
+                                                            # sites like https://informatics.ics.uci.edu/ and https://informatics.uci.edu/ are the same
+ 
         self.next_frontier = 0 # Holds which frontier to look at next (rotates around in a cycle)
         self.in_flight = 0 # non 0 if a worker can add urls to the frontier
                            # add url increments, mark complete decrements
@@ -100,7 +103,10 @@ class Frontier(object):
                         self.next_frontier = (index + 1) % n
                         self.in_flight += 1 # Add 1 since we may add more urls from this url that will be returned
                                             # Mark complete will decrement this counter
-                        return domain_frontier.queue.popleft()
+
+                        return_url = domain_frontier.queue.popleft()
+                        self.logger.info(f"Popping {return_url} from frontier {self.domain_frontiers[index].domain}")
+                        return return_url
                     # If not enough time pass, keep track of when to wake up
                     soonest = ready_at if soonest is None else min(soonest, ready_at)
 
@@ -120,15 +126,26 @@ class Frontier(object):
             time.sleep(max(wait_time, 0.05)) # arbitrary min wait time, can be whatever
 
 
+    def _route(self, url):
+        """
+        Finds longest matching host frontier
+        """
+        host = host_alias.canonical_host(urlparse(url).hostname or "")
+        best = None # best domain frontier match
+        for df in self.domain_frontiers:
+            if host == df.domain or host.endswith("." + df.domain):
+                if best is None or len(df.domain) > len(best.domain):
+                    best = df
+        return best
 
     # Only call this in add_url()
     def _add_url_to_domain_queue(self, url):
-        host = urlparse(url).hostname or ""
-        for domain_frontier in self.domain_frontiers:
-            if host == domain_frontier.domain or host.endswith("." + domain_frontier.domain):
-                # self.logger.info(f"Adding {url} to {domain_frontier.domain} frontier")
-                domain_frontier.queue.append(url)
-                break
+        frontier = self._route(url)
+        if frontier is None:
+            self.logger.info(f"No frontier for {url}. Not adding this url to a queue")
+            return
+        frontier.queue.append(url)
+        # self.logger.info(f"Adding {url} to {domain_frontier.domain} frontier")
         
 
     def add_url(self, url):

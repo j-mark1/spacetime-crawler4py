@@ -34,7 +34,7 @@ class Worker(Thread):
             self.logger.info(f"Completed scaper.scraper() in {time.monotonic() - now} seconds")
 
             for scraped_url in scraped_urls:
-                self.frontier.add_url(scraped_url)
+                self.frontier.add_url(scraped_url) # unclean url. will be cleaned in this function
             self.frontier.mark_url_complete(tbd_url)
             # self.logger.info(f"Worker loop iteration completed in {time.monotonic() - now} seconds")
 
