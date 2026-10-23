@@ -12,9 +12,6 @@ from urllib.parse import urlparse
 from utils import get_logger, get_urlhash, normalize
 from scraper import is_valid
 
-# Globals for indicies
-
-
 
 class Domain():
     def __init__(self, domain: str):
@@ -114,7 +111,8 @@ class Frontier(object):
                 wait_time = (soonest - now) if soonest is not None else self.config.time_delay
             # out of lock now
             log_str = f"Failed to obtain a lock. Waiting for {wait_time} seconds\n"
-            log_str += f"\t Current Time: {time.monotonic()}"
+            current_time = time.monotonic()
+            log_str += f"\t Current Time: {current_time}"
             for i in range(len(self.domain_frontiers)):
                 log_str += f"\tFrontier {i}: {self.domain_frontiers[i].last_access}"
             self.logger.info(log_str)
@@ -123,7 +121,7 @@ class Frontier(object):
 
 
 
-
+    # Only call this in add_url()
     def _add_url_to_domain_queue(self, url):
         host = urlparse(url).hostname or ""
         for domain_frontier in self.domain_frontiers:
