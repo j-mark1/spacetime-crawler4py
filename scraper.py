@@ -29,13 +29,18 @@ def extract_next_links(url, resp):
         if not isinstance(anchor_url, str):
             continue
 
-        # Ensure url is absolute
-        absolute_url = urljoin(resp.url, anchor_url)
+        try:
+            # Ensure url is absolute
+            absolute_url = urljoin(resp.url, anchor_url)
 
-        # Defragment link before appending
-        defragmented_url = urldefrag(absolute_url)[0]
+            # Defragment link before appending
+            defragmented_url = urldefrag(absolute_url)[0]
 
-        next_links.append(defragmented_url)
+            next_links.append(defragmented_url)
+        except ValueError:
+            # Ignore malformed urls
+            continue
+
     return next_links
 
 def is_valid(url):
@@ -87,7 +92,7 @@ def is_trap_url(url):
         return True
 
     query_params = parse_qs(parsed.query)
-    blacklisted_queries = ["do", "idx", "C", "C", "C", "C", "O", "O", "MA", "SA", "skin"]
+    blacklisted_queries = ["do", "idx", "C", "O", "MA", "SA", "skin"]
 
     # Avoid duplicate params
     if any(len(params) > 1 for params in query_params.values()):
