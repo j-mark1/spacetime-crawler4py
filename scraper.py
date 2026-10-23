@@ -77,10 +77,6 @@ def is_valid(url):
         print ("TypeError for ", parsed)
         raise
 
-def tokenizer():
-    #tokenize information
-    pass
-
 def is_trap_url(url):
     parsed = urlparse(url)
 
