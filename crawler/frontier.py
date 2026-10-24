@@ -189,6 +189,9 @@ class Frontier(object):
                 self.logger.error(f"Completed url {url}, but have not seen it before.")
             self.in_flight -= 1
 
+    def mark_url_failed(self, url):
+        with self.lock:
+            self.in_flight -= 1
 
     def url_exist_in_db(self, url):
         exists = False
