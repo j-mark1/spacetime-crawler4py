@@ -45,6 +45,8 @@ class Worker(Thread):
                 self.logger.info(
                     f"Downloaded {tbd_url}, status <{resp.status}>, "
                     f"using cache {self.config.cache_server}.")
+                if resp.status == 600:
+                    raise ConnectionError(resp.error)
                 # Ignore all sites that do not return status 200 and already exist in db.
                 # Also ignore sites where content cannot be downloaded or where there is no content.
                 # NOTE: Crawler already traverses through redirect to retrieve redirected content, no need to check 300s status codes
@@ -66,8 +68,10 @@ class Worker(Thread):
                         self.logger.info(f"Completed scaper.scraper() in {time.monotonic() - start} seconds")
                         for scraped_url in scraped_urls:
                             self.frontier.add_url(scraped_url) # unclean url. will be cleaned in this function
-            except Exception as e:
-                self.logger.exception(f"Error processing {tbd_url}")
-            finally:
-                self.frontier.mark_url_complete(tbd_url)
-                self.logger.info(f"Worker loop iteration completed in {time.monotonic() - start} seconds")
+            except Exception:
+                # the crawl keeps going, and the next resume tries the url again
+                self.logger.exception(f"Error while crawling {tbd_url}, leaving it for the resume")
+                self.frontier.mark_url_failed(tbd_url)
+                continue
+            self.frontier.mark_url_complete(tbd_url)
+            self.logger.info(f"Worker loop iteration completed in {time.monotonic() - start} seconds")
