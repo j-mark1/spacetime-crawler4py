@@ -47,11 +47,9 @@ class Frontier(object):
         self.conn = sqlite3.connect("unique_pages.db", check_same_thread=False)
         self.cursor = self.conn.cursor()
         self.cursor.execute("PRAGMA journal_mode=WAL;")
+        self.conn.commit()
 
-
-
-
-        # TODO deal with saves later
+        # Dealing with saves
         if not os.path.exists(self.config.save_file) and not restart:
             # Save file does not exist, but request to load save.
             self.logger.info(
@@ -88,7 +86,8 @@ class Frontier(object):
         self.cursor.execute("""
             CREATE TABLE IF NOT EXISTS unique_pages (
                 url TEXT PRIMARY KEY,
-                subdomain TEXT
+                subdomain TEXT,
+                hash TEXT
             )
         """)
         self.conn.commit()
@@ -145,7 +144,7 @@ class Frontier(object):
                     ready_at = domain_frontier.last_access + self.config.time_delay
                     # If enough time has passed for politeness
                     if ready_at <= now:
-                        domain_frontier.busy = True
+                        domain_frontier.busy = True # Need this bc politeness is based on download, not get url
                         self.next_frontier = (index + 1) % n
                         self.in_flight += 1 # Add 1 since we may add more urls from this url that will be returned
                                             # Mark complete will decrement this counter
@@ -163,11 +162,6 @@ class Frontier(object):
                 wait_time = (soonest - now) if soonest is not None else self.config.time_delay
             # out of lock now
             log_str = f"Failed to obtain a lock. Waiting for {wait_time} seconds"
-            # log_str = f"Failed to obtain a lock. Waiting for {wait_time} seconds\n"
-            # current_time = time.monotonic()
-            # log_str += f"\t Current Time: {current_time}"
-            # for i in range(len(self.domain_frontiers)):
-            #     log_str += f"\tFrontier {i}: {self.domain_frontiers[i].last_access}"
             self.logger.info(log_str)
 
             time.sleep(max(wait_time, 0.05)) # arbitrary min wait time, can be whatever
@@ -233,23 +227,35 @@ class Frontier(object):
                 df.busy = False
                 df.last_access = time.monotonic()
 
-    def url_exist_in_db(self, url):
-        exists = False
-        with self.lock:
-            self.cursor.execute("""
-                SELECT EXISTS(SELECT 1 FROM unique_pages WHERE url = ?);
-            """, (url, ))
-            exists = self.cursor.fetchone()[0]
-        return exists
+    # def url_exist_in_db(self, url):
+    #     exists = False
+    #     with self.lock:
+    #         self.cursor.execute("""
+    #             SELECT EXISTS(SELECT 1 FROM unique_pages WHERE url = ?);
+    #         """, (url, ))
+    #         exists = self.cursor.fetchone()[0]
+    #     return exists
 
-    def add_unique_page_to_db(self, scheme, hostname, url):
+    def url_can_be_downloaded(self, url, hash):
+        # Checks if url is in db and if hash exists
+        seen = False
+        with self.lock:
+            self.cursor.execute(
+                "SELECT EXISTS(SELECT 1 FROM unique_pages WHERE url = ? OR hash = ?)",
+                (url, hash))
+            seen = self.cursor.fetchone()[0]
+        return not seen
+
+        return not url_exists and not hash_exists
+
+    def add_unique_page_to_db(self, scheme, hostname, url, hash = ""):
         with self.lock:
             subdomain = f"{scheme.lower()}://{hostname.lower()}"
 
             self.cursor.execute("""
-                INSERT INTO unique_pages (url, subdomain) 
-                VALUES (?, ?)
-            """, (url, subdomain,))
+                INSERT INTO unique_pages (url, subdomain, hash) 
+                VALUES (?, ?, ?)
+            """, (url, subdomain, hash))
             self.conn.commit()
 
     def close_db(self):

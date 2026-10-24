@@ -6,6 +6,7 @@ from utils import get_logger
 import scraper
 import time
 from urllib.parse import urlparse
+import hashlib
 
 
 class Worker(Thread):
@@ -48,18 +49,18 @@ class Worker(Thread):
                 # Also ignore sites where content cannot be downloaded or where there is no content.
                 # NOTE: Crawler already traverses through redirect to retrieve redirected content, no need to check 300s status codes
                 if (resp.status == 200 and resp.raw_response and resp.raw_response.content):
-                    # Check if url already exists in the db
-                    exists = self.frontier.url_exist_in_db(resp.raw_response.url)
-                    if (not exists):
+                    # Check if url can be downloaded
+                    hashed = hashlib.sha256(resp.raw_response.content).hexdigest()
+                    can_be_downloaded = self.frontier.url_can_be_downloaded(resp.raw_response.url, hashed)
+                    if (can_be_downloaded):
                         # Store current downloaded page (already confirmed by is_valid to be valid) into db.
                         # Moved to this spot to consider redirected urls and ensure that the actual page of a redirected url is being stored rather than just all urls before redirect.
                         # How? resp.raw_response.url is used to consider only redirected url (url that is actually retrieved) if redirect occurs.
                         # As a result, only the actual page's url is processed and stored in db.
 
-                        # TODO get the pages hash, add it iff not similar or not exact match
 
                         parsed = urlparse(resp.raw_response.url)
-                        self.frontier.add_unique_page_to_db(parsed.scheme, parsed.hostname, resp.raw_response.url)
+                        self.frontier.add_unique_page_to_db(parsed.scheme, parsed.hostname, resp.raw_response.url, hashed)
 
                         scraped_urls = scraper.scraper(tbd_url, resp)
                         self.logger.info(f"Completed scaper.scraper() in {time.monotonic() - start} seconds")
@@ -70,5 +71,3 @@ class Worker(Thread):
             finally:
                 self.frontier.mark_url_complete(tbd_url)
                 self.logger.info(f"Worker loop iteration completed in {time.monotonic() - start} seconds")
-
-    
