@@ -18,6 +18,7 @@ class Domain():
     def __init__(self, domain: str):
         # Like https://www.ics.uci.edu
         self.domain = (urlparse(domain).hostname or "").removeprefix("www.")
+        self.busy = False
         
         # use a dequeue for bfs since it isnt hurt by traps as much. 
         # also important pages appear closer relative to seed urls
@@ -138,12 +139,13 @@ class Frontier(object):
                 for i in range(n):
                     index = (self.next_frontier + i) % n
                     domain_frontier = self.domain_frontiers[index]
-                    if not domain_frontier.queue: # if empty
+                    if not domain_frontier.queue or domain_frontier.busy: # if empty or busy, skip
                         continue
+                    
                     ready_at = domain_frontier.last_access + self.config.time_delay
                     # If enough time has passed for politeness
                     if ready_at <= now:
-                        domain_frontier.last_access = now
+                        domain_frontier.busy = True
                         self.next_frontier = (index + 1) % n
                         self.in_flight += 1 # Add 1 since we may add more urls from this url that will be returned
                                             # Mark complete will decrement this counter
@@ -160,11 +162,12 @@ class Frontier(object):
 
                 wait_time = (soonest - now) if soonest is not None else self.config.time_delay
             # out of lock now
-            log_str = f"Failed to obtain a lock. Waiting for {wait_time} seconds\n"
-            current_time = time.monotonic()
-            log_str += f"\t Current Time: {current_time}"
-            for i in range(len(self.domain_frontiers)):
-                log_str += f"\tFrontier {i}: {self.domain_frontiers[i].last_access}"
+            log_str = f"Failed to obtain a lock. Waiting for {wait_time} seconds"
+            # log_str = f"Failed to obtain a lock. Waiting for {wait_time} seconds\n"
+            # current_time = time.monotonic()
+            # log_str += f"\t Current Time: {current_time}"
+            # for i in range(len(self.domain_frontiers)):
+            #     log_str += f"\tFrontier {i}: {self.domain_frontiers[i].last_access}"
             self.logger.info(log_str)
 
             time.sleep(max(wait_time, 0.05)) # arbitrary min wait time, can be whatever
@@ -221,6 +224,14 @@ class Frontier(object):
             self.save.sync()
             self.in_flight -= 1
 
+    # Called by worker after download to release a domain
+    # Otherwise might run into race conditions
+    def release_domain(self, url):
+        with self.lock:
+            df = self._route(url)
+            if df is not None:
+                df.busy = False
+                df.last_access = time.monotonic()
 
     def url_exist_in_db(self, url):
         exists = False

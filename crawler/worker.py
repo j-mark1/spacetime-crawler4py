@@ -27,39 +27,48 @@ class Worker(Thread):
                 self.logger.info("Frontier is empty. Stopping Crawler.")
                 self.frontier.close_db()
                 break
-            resp = download(tbd_url, self.config, self.logger)
-            self.logger.info(
-                f"Downloaded {tbd_url}, status <{resp.status}>, "
-                f"using cache {self.config.cache_server}.")
 
             start = time.monotonic()
 
-            # Ignore all sites that do not return status 200 and already exist in db.
-            # Also ignore sites where content cannot be downloaded or where there is no content.
-            # NOTE: Crawler already traverses through redirect to retrieve redirected content, no need to check 300s status codes
-            if (resp.status == 200 and resp.raw_response and resp.raw_response.content):
-                # Check if url already exists in the db
-                exists = self.frontier.url_exist_in_db(resp.raw_response.url)
-                # self.cursor.execute("""
-                #     SELECT EXISTS(SELECT 1 FROM unique_pages WHERE url = ?);
-                # """, (resp.raw_response.url, ))
-                # exists = self.cursor.fetchone()[0]
-                if (not exists):
-                    # Store current downloaded page (already confirmed by is_valid to be valid) into db.
-                    # Moved to this spot to consider redirected urls and ensure that the actual page of a redirected url is being stored rather than just all urls before redirect.
-                    # How? resp.raw_response.url is used to consider only redirected url (url that is actually retrieved) if redirect occurs.
-                    # As a result, only the actual page's url is processed and stored in db.
+            # Disgusting nested try just in case something goes wrong.
+            # We need to nest try blocks bc python is stupid where finally doesnt catch excpetions
+            # so if download raises but it isnt in the nested try it will propagate
+            # if we use only one big try, we release domain after scraping which wastes lots of time
+            try:
+                # Try to download, release regardless
+                try:
+                    resp = download(tbd_url, self.config, self.logger)
+                finally:
+                    self.frontier.release_domain(tbd_url)
 
-                    # TODO get the pages hash, add it iff not similar or not exact match
+                self.logger.info(
+                    f"Downloaded {tbd_url}, status <{resp.status}>, "
+                    f"using cache {self.config.cache_server}.")
+                # Ignore all sites that do not return status 200 and already exist in db.
+                # Also ignore sites where content cannot be downloaded or where there is no content.
+                # NOTE: Crawler already traverses through redirect to retrieve redirected content, no need to check 300s status codes
+                if (resp.status == 200 and resp.raw_response and resp.raw_response.content):
+                    # Check if url already exists in the db
+                    exists = self.frontier.url_exist_in_db(resp.raw_response.url)
+                    if (not exists):
+                        # Store current downloaded page (already confirmed by is_valid to be valid) into db.
+                        # Moved to this spot to consider redirected urls and ensure that the actual page of a redirected url is being stored rather than just all urls before redirect.
+                        # How? resp.raw_response.url is used to consider only redirected url (url that is actually retrieved) if redirect occurs.
+                        # As a result, only the actual page's url is processed and stored in db.
 
-                    parsed = urlparse(resp.raw_response.url)
-                    self.frontier.add_unique_page_to_db(parsed.scheme, parsed.hostname, resp.raw_response.url)
+                        # TODO get the pages hash, add it iff not similar or not exact match
 
-                    scraped_urls = scraper.scraper(tbd_url, resp)
-                    self.logger.info(f"Completed scaper.scraper() in {time.monotonic() - start} seconds")
-                    for scraped_url in scraped_urls:
-                        self.frontier.add_url(scraped_url) # unclean url. will be cleaned in this function
-            self.frontier.mark_url_complete(tbd_url)
-            self.logger.info(f"Worker loop iteration completed in {time.monotonic() - start} seconds")
+                        parsed = urlparse(resp.raw_response.url)
+                        self.frontier.add_unique_page_to_db(parsed.scheme, parsed.hostname, resp.raw_response.url)
+
+                        scraped_urls = scraper.scraper(tbd_url, resp)
+                        self.logger.info(f"Completed scaper.scraper() in {time.monotonic() - start} seconds")
+                        for scraped_url in scraped_urls:
+                            self.frontier.add_url(scraped_url) # unclean url. will be cleaned in this function
+            except Exception as e:
+                self.logger.exception(f"Error processing {tbd_url}")
+            finally:
+                self.frontier.mark_url_complete(tbd_url)
+                self.logger.info(f"Worker loop iteration completed in {time.monotonic() - start} seconds")
 
     
