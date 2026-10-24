@@ -15,6 +15,7 @@ class Domain():
     def __init__(self, domain: str):
         # Like https://www.ics.uci.edu
         self.domain = (urlparse(domain).hostname or "").removeprefix("www.")
+        self.busy = False
         
         # use a dequeue for bfs since it isnt hurt by traps as much. 
         # also important pages appear closer relative to seed urls
@@ -42,15 +43,12 @@ class Frontier(object):
         self.conn = sqlite3.connect("unique_pages.db", check_same_thread=False)
         self.cursor = self.conn.cursor()
         self.cursor.execute("PRAGMA journal_mode=WAL;")
+        self.conn.commit()
 
-
-
-
-        # TSave file is SQList table
+        # Save file is SQLite table
         # workers take turns and each write is saved right away
         self.save = sqlite3.connect(self.config.save_file, check_same_thread=False, isolation_level=None)
         self.save.execute("CREATE TABLE IF NOT EXISTS frontier (urlhash TEXT PRIMARY KEY, url TEXT, completed INTEGER)")
-
 
         if restart:
             self.save.execute("DELETE FROM frontier")
@@ -76,7 +74,8 @@ class Frontier(object):
         self.cursor.execute("""
             CREATE TABLE IF NOT EXISTS unique_pages (
                 url TEXT PRIMARY KEY,
-                subdomain TEXT
+                subdomain TEXT,
+                hash TEXT
             )
         """)
         self.conn.commit()
@@ -116,12 +115,13 @@ class Frontier(object):
                 for i in range(n):
                     index = (self.next_frontier + i) % n
                     domain_frontier = self.domain_frontiers[index]
-                    if not domain_frontier.queue: # if empty
+                    if not domain_frontier.queue or domain_frontier.busy: # if empty or busy, skip
                         continue
+                    
                     ready_at = domain_frontier.last_access + self.config.time_delay
                     # If enough time has passed for politeness
                     if ready_at <= now:
-                        domain_frontier.last_access = now
+                        domain_frontier.busy = True # Need this bc politeness is based on download, not get url
                         self.next_frontier = (index + 1) % n
                         self.in_flight += 1 # Add 1 since we may add more urls from this url that will be returned
                                             # Mark complete will decrement this counter
@@ -138,11 +138,7 @@ class Frontier(object):
 
                 wait_time = (soonest - now) if soonest is not None else self.config.time_delay
             # out of lock now
-            log_str = f"Failed to obtain a lock. Waiting for {wait_time} seconds\n"
-            current_time = time.monotonic()
-            log_str += f"\t Current Time: {current_time}"
-            for i in range(len(self.domain_frontiers)):
-                log_str += f"\tFrontier {i}: {self.domain_frontiers[i].last_access}"
+            log_str = f"Failed to obtain a lock. Waiting for {wait_time} seconds"
             self.logger.info(log_str)
 
             time.sleep(max(wait_time, 0.05)) # arbitrary min wait time, can be whatever
@@ -193,21 +189,46 @@ class Frontier(object):
         with self.lock:
             self.in_flight -= 1
 
-    def url_exist_in_db(self, url):
-        exists = False
+    # Called by worker after download to release a domain
+    # Otherwise might run into race conditions
+    def release_domain(self, url):
         with self.lock:
-            self.cursor.execute("""
-                SELECT EXISTS(SELECT 1 FROM unique_pages WHERE url = ?);
-            """, (url, ))
-            exists = self.cursor.fetchone()[0]
-        return exists
+            df = self._route(url)
+            if df is not None:
+                df.busy = False
+                df.last_access = time.monotonic()
 
-    def add_unique_page_to_db(self, scheme, hostname, url):
+    # def url_exist_in_db(self, url):
+    #     exists = False
+    #     with self.lock:
+    #         self.cursor.execute("""
+    #             SELECT EXISTS(SELECT 1 FROM unique_pages WHERE url = ?);
+    #         """, (url, ))
+    #         exists = self.cursor.fetchone()[0]
+    #     return exists
+
+    def url_can_be_downloaded(self, url, hash):
+        # Checks if url is in db and if hash exists
+        seen = False
+        with self.lock:
+            self.cursor.execute(
+                "SELECT EXISTS(SELECT 1 FROM unique_pages WHERE url = ? OR hash = ?)",
+                (url, hash))
+            seen = self.cursor.fetchone()[0]
+        return not seen
+
+        return not url_exists and not hash_exists
+
+    def add_unique_page_to_db(self, scheme, hostname, url, hash = ""):
         with self.lock:
             subdomain = f"{scheme.lower()}://{hostname.lower()}"
 
             self.cursor.execute("""
-                INSERT INTO unique_pages (url, subdomain) 
-                VALUES (?, ?)
-            """, (url, subdomain,))
+                INSERT INTO unique_pages (url, subdomain, hash) 
+                VALUES (?, ?, ?)
+            """, (url, subdomain, hash))
             self.conn.commit()
+
+    def close_db(self):
+        with self.lock:
+            self.conn.close()
