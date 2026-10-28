@@ -94,6 +94,11 @@ def is_valid(url):
         print ("TypeError for ", parsed)
         raise
 
+# path pieces of known trap families: wiki login pages, helpdesk tickets (login only)
+TRAP_PATHS = ["doku.php/group:support", "/Ticket/"]
+# calendar views that link to the next day/week/month forever
+CALENDAR_VIEW = re.compile(r"/events/((month|week|day|today|photo)(/|$)|\d{4}-\d{2})")
+
 def is_trap_url(url):
     parsed = urlparse(url)
 
@@ -104,8 +109,18 @@ def is_trap_url(url):
     if parsed.port and parsed.port not in (80, 443):
         return True
 
+    if any(piece in parsed.path for piece in TRAP_PATHS) or CALENDAR_VIEW.search(parsed.path):
+        return True
+
     query_params = parse_qs(parsed.query)
-    blacklisted_queries = ["do", "idx", "C", "O", "MA", "SA", "skin"]
+    blacklisted_queries = ["do", "idx", "C", "O", "MA", "SA", "skin",
+                           "from", "precision", "version", "format", "action",
+                           "share", "ical", "outlook-ical", "eventDisplay",
+                           "redirect_to", "next", "replytocom"]
+
+    # calendar settings (tribe...) and search filters (filter[...])
+    if any(name.startswith(("tribe", "filter")) for name in query_params):
+        return True
 
     # Avoid duplicate params
     if any(len(params) > 1 for params in query_params.values()):
