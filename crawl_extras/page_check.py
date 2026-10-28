@@ -31,7 +31,6 @@ SOFT_404 = "SOFT_404"
 NOT_HTML = "NOT_HTML"
 TOO_LARGE = "TOO_LARGE"
 OUT_OF_SCOPE = "OUT_OF_SCOPE"
-INTERNAL_ERROR = "INTERNAL_ERROR"   # set by page_stats if checking a page crashed
 
 # url = final url after redirects, tokens = every visible word, soup = parsed page or None
 PageCheck = namedtuple("PageCheck", ["label", "url", "page_key", "tokens", "soup", "follow_links"])
@@ -66,7 +65,7 @@ def classify(url, resp):
         return result(DEAD_EMPTY, False)
     if len(content) > MAX_PAGE_BYTES:
         return result(TOO_LARGE, False)
-    if not _is_html(raw):
+    if not _is_html(raw) or _looks_binary(content): # skip binary files
         return result(NOT_HTML, False)
 
     soup = text.parse_html(content, _encoding_hint(raw, content))
@@ -113,6 +112,9 @@ def _content_type(raw):
 def _is_html(raw):
     media_type = _content_type(raw).split(";", 1)[0].strip().lower()
     return media_type == "" or media_type in HTML_CONTENT_TYPES
+
+def _looks_binary(content):
+    return b"\x00" in content[:1024] and not content.startswith(_UTF16_32_BOMS)
 
 # the server's charset, else UTF-8; UTF-16/32 pages (byte-order mark) are left toBeautifulSoup
 def _encoding_hint(raw, content):

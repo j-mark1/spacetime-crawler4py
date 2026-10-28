@@ -2,6 +2,7 @@ import re
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse, urldefrag, urljoin, parse_qs
 from crawl_extras import page_stats
+from crawl_extras.scope import in_allowed_domains
 
 def scraper(url, resp):
     if not page_stats.process_page(url, resp):
@@ -39,6 +40,8 @@ def extract_next_links(url, resp):
         if not isinstance(anchor_url, str):
             continue
 
+        anchor_url = anchor_url.strip() # to ignore spaces
+
         try:
             # Ensure url is absolute (relative to page's real url)
             absolute_url = urljoin(resp.raw_response.url, anchor_url)
@@ -58,6 +61,10 @@ def is_valid(url):
     # If you decide to crawl it, return True; otherwise return False.
     # There are already some conditions that return False.
     try:
+        # ASCII urls only
+        if not in_allowed_domains(url) or not url.isascii():
+            return False
+
         allowed_domains = ["ics.uci.edu", "cs.uci.edu", "informatics.uci.edu", "stat.uci.edu"]
         parsed = urlparse(url)
 
@@ -81,7 +88,7 @@ def is_valid(url):
             + r"|epub|dll|cnf|tgz|sha1"
             + r"|thmx|mso|arff|rtf|jar|csv"
             + r"|rm|smil|wmv|swf|wma|zip|rar|gz"
-            + r"|cpp|cc|c|h|txt|dev|admin)$", parsed.path.lower())
+            + r"|cpp|cc|c|h|txt|dev|admin|ppsx|pps|bib|apk|sql|nb|m|img)$", parsed.path.lower())
 
     except TypeError:
         print ("TypeError for ", parsed)
