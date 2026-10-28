@@ -43,7 +43,7 @@ def load_stopwords(path=STOPWORDS_PATH):
             words.update(tokenize(line))
     return frozenset(words)
 
-# allow for cases of can't, won't, and let's
+# allow for cases of can't, won't, and let's to be counted in top 50
 STOPWORDS = load_stopwords() - {"can", "won", "let"}
 
 # counts toward the top 50: 2+ characters, not a number, not a stop word
