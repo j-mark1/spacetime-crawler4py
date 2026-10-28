@@ -31,7 +31,6 @@ SOFT_404 = "SOFT_404"
 NOT_HTML = "NOT_HTML"
 TOO_LARGE = "TOO_LARGE"
 OUT_OF_SCOPE = "OUT_OF_SCOPE"
-INTERNAL_ERROR = "INTERNAL_ERROR"   # set by page_stats if checking a page crashed
 
 # url = final url after redirects, tokens = every visible word, soup = parsed page or None
 PageCheck = namedtuple("PageCheck", ["label", "url", "page_key", "tokens", "soup", "follow_links"])
