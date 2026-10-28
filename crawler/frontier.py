@@ -1,6 +1,3 @@
-import os
-import shelve
-
 import sqlite3
 from threading import Thread, RLock, Lock
 import threading
@@ -31,7 +28,6 @@ class Frontier(object):
     def __init__(self, config, restart):
         self.logger = get_logger("FRONTIER")
         self.config = config
-        self.count = 0
 
         # 1 frontier per domain (ics, cs, informatics, stat)
         self.domain_frontiers = [Domain(url) for url in config.seed_urls] 
@@ -49,22 +45,14 @@ class Frontier(object):
         self.cursor.execute("PRAGMA journal_mode=WAL;")
         self.conn.commit()
 
-        # Dealing with saves
-        if not os.path.exists(self.config.save_file) and not restart:
-            # Save file does not exist, but request to load save.
-            self.logger.info(
-                f"Did not find save file {self.config.save_file}, "
-                f"starting from seed.")
-        elif os.path.exists(self.config.save_file) and restart:
-            # Save file does exists, but request to start from seed.
-            self.logger.info(
-                f"Found save file {self.config.save_file}, deleting it.")
-            os.remove(self.config.save_file)
-        # Load existing save file, or create one if it does not exist.
-        self.save = shelve.open(self.config.save_file)
-
+        # Save file is SQLite table
+        # workers take turns and each write is saved right away
+        self.save = sqlite3.connect(self.config.save_file, check_same_thread=False, isolation_level=None)
+        self.save.execute("CREATE TABLE IF NOT EXISTS frontier (urlhash TEXT PRIMARY KEY, url TEXT, completed INTEGER)")
 
         if restart:
+            self.save.execute("DELETE FROM frontier")
+
             # Delete old table
             self.cursor.execute("""
                 DROP TABLE IF EXISTS unique_pages;     
@@ -77,7 +65,7 @@ class Frontier(object):
         else:
             # Set the frontier state with contents of save file.
             self._parse_save_file() # also restores the urls to the queues
-            if not self.save:
+            if self.save.execute("SELECT COUNT(*) FROM frontier").fetchone()[0] == 0:
                 for url in self.config.seed_urls:
                     self.add_url(url)
 
@@ -93,30 +81,19 @@ class Frontier(object):
         self.conn.commit()
 
     def _parse_save_file(self):
-        
-        total_count = len(self.save)
+        total_count = self.save.execute("SELECT COUNT(*) FROM frontier").fetchone()[0]
         pending = []
-        max_seq = -1
         not_added_count = 0
-        # Restore valid urls that were not visited
-        for entry in self.save.values():
-            if len(entry) == 3:
-                url, completed, seq = entry
-            else:
-                url, completed = entry
-                seq = 0
-            max_seq = max(max_seq, seq)
+        # Restore valid urls that were not visited, in the order they were found (rowid = insert order, better for breadth)
+        for url, completed in self.save.execute("SELECT url, completed FROM frontier ORDER BY rowid"):
             if not completed and is_valid(url):
-                pending.append((seq, url))
+                pending.append(url)
             else:
                 not_added_count += 1
 
-        # Restore order based on the sequence (doesnt really matter but having the original order is better for breadth)
-        pending.sort() 
-        for _, url in pending:
+        for url in pending:
             self._add_url_to_domain_queue(url) # url already normalized
 
-        self.count = max_seq + 1 # restore count
         self.logger.info(
             f"Resumed {len(pending)} pending urls from {total_count} "
             f"total urls discovered. "
@@ -193,10 +170,8 @@ class Frontier(object):
         with self.lock:
             url = normalize(url)
             urlhash = get_urlhash(url)
-            if urlhash not in self.save:
-                self.save[urlhash] = (url, False, self.count)
-                self.count += 1
-                self.save.sync()
+            if self.save.execute("SELECT 1 FROM frontier WHERE urlhash = ?", (urlhash,)).fetchone() is None:
+                self.save.execute("INSERT INTO frontier VALUES (?, ?, 0)", (urlhash, url))
 
                 # Add to domain queue
                 self._add_url_to_domain_queue(url)
@@ -204,18 +179,14 @@ class Frontier(object):
     def mark_url_complete(self, url):
         with self.lock:
             urlhash = get_urlhash(url)
-            old = self.save.get(urlhash)
-            if old is None:
+            # UPDATE changes 0 rows if the url was never saved
+            if self.save.execute("UPDATE frontier SET completed = 1 WHERE urlhash = ?", (urlhash,)).rowcount == 0:
                 # Should not happen
                 self.logger.error(f"Completed url {url}, but have not seen it before.")
-                seq = -1
-            else:
-                # old = (url, completed, seq) if len is 3
-                seq = old[2] if len(old) == 3 else -1 
+            self.in_flight -= 1
 
-
-            self.save[urlhash] = (url, True, seq)
-            self.save.sync()
+    def mark_url_failed(self, url):
+        with self.lock:
             self.in_flight -= 1
 
     # Called by worker after download to release a domain

@@ -40,8 +40,8 @@ def extract_next_links(url, resp):
             continue
 
         try:
-            # Ensure url is absolute
-            absolute_url = urljoin(resp.url, anchor_url)
+            # Ensure url is absolute (relative to page's real url)
+            absolute_url = urljoin(resp.raw_response.url, anchor_url)
 
             # Defragment link before appending
             defragmented_url = urldefrag(absolute_url)[0]

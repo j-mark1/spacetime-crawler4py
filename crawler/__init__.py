@@ -21,6 +21,11 @@ class Crawler(object):
         self.start_async()
         self.join()
 
+        #urls that failed (like when server goes down) are unfinished and needs to resume
+        unfinished = self.frontier.save.execute("SELECT COUNT(*) FROM frontier WHERE completed = 0").fetchone()[0]
+        if unfinished:
+            self.logger.warning(f"{unfinished} urls failed and are still unfinished.")
+
     def join(self):
         for worker in self.workers:
             worker.join()
