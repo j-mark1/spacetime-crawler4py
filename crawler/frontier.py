@@ -8,7 +8,7 @@ import time
 from urllib.parse import urlparse
 
 from utils import get_logger, get_urlhash, host_alias, normalize
-from scraper import is_valid
+from scraper import is_crawlable
 
 
 class Domain():
@@ -84,9 +84,9 @@ class Frontier(object):
         total_count = self.save.execute("SELECT COUNT(*) FROM frontier").fetchone()[0]
         pending = []
         not_added_count = 0
-        # Restore valid urls that were not visited, in the order they were found (rowid = insert order, better for breadth)
+        # Restore crawlable urls that were not visited, in the order they were found (rowid = insert order, better for breadth)
         for url, completed in self.save.execute("SELECT url, completed FROM frontier ORDER BY rowid"):
-            if not completed and is_valid(url):
+            if not completed and is_crawlable(url):
                 pending.append(url)
             else:
                 not_added_count += 1
