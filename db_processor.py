@@ -20,11 +20,37 @@ def display_ics_subdomains():
     """)
     conn.commit()
 
+    # Fix http and https subdomains being separate
+    http_subdomains = {}
+    subdomain_rows = []
+    skip = []
+
+    for row in cursor.fetchall():
+        if "https" not in row[0]:
+            subdomain_rows.append(row)
+            # Remove http:// in the beginning to be used to compare just subdomain, store index of that subdomain url
+            http_subdomains[row[0].replace("http://", "")] = len(subdomain_rows) - 1
+        else: 
+            # https subdomain
+            subdomain = row[0].replace("https://", "")
+
+            # If there is an http that has https subdomain, store index to know to skip it
+            # when writing to file since http redirects to https anyways.
+            # Otherwise just add https version to list and move on
+            if subdomain in http_subdomains:
+                http_index = http_subdomains[subdomain]
+                skip.append(http_index)
+
+                # Combine http and https counts 
+                row = (row[0], row[1] + subdomain_rows[http_index][1])
+            subdomain_rows.append(row)
+
     with open("results_ics_subdomains.txt", "w", encoding="utf-8") as f:
-        for row in cursor.fetchall():
-            # Turn the whole row into string types and combine into one string with ", " between each individual string
-            row_text = ", ".join(map(str, row))
-            f.write(row_text + "\n")
+        for i, row in enumerate(subdomain_rows):
+            if i not in skip:
+                # Turn the whole row into string types and combine into one string with ", " between each individual string
+                row_text = ", ".join(map(str, row))
+                f.write(row_text + "\n")
 
     conn.close()
 
