@@ -9,7 +9,7 @@ import re
 from collections import namedtuple
 from urllib.parse import urldefrag, urlparse
 
-from crawl_extras import text
+from crawl_extras import simhash, text
 from crawl_extras.scope import in_allowed_domains
 
 # our "low information value" thresholds; tune them from the test crawl
@@ -31,9 +31,11 @@ SOFT_404 = "SOFT_404"
 NOT_HTML = "NOT_HTML"
 TOO_LARGE = "TOO_LARGE"
 OUT_OF_SCOPE = "OUT_OF_SCOPE"
+DUPLICATE = "DUPLICATE"  # set by page_stats when an OK page is near another saved page
 
-# url = final url after redirects, tokens = every visible word, soup = parsed page or None
-PageCheck = namedtuple("PageCheck", ["label", "url", "page_key", "tokens", "soup", "follow_links"])
+# url = final url after redirects, tokens = every visible word, soup = parsed page or None,
+# fingerprint = simhash of the tokens (OK pages only, else None)
+PageCheck = namedtuple("PageCheck", ["label", "url", "page_key", "tokens", "soup", "follow_links", "fingerprint"])
 
 
 # one key per page: lowercase host, no scheme, fragment or trailing "/"
@@ -50,8 +52,8 @@ def classify(url, resp):
     final_url = _final_url(url, raw)
     key = page_key(final_url)
 
-    def result(label, follow_links, tokens=(), soup=None):
-        return PageCheck(label, final_url, key, list(tokens), soup, follow_links)
+    def result(label, follow_links, tokens=(), soup=None, fingerprint=None):
+        return PageCheck(label, final_url, key, list(tokens), soup, follow_links, fingerprint)
 
     if getattr(resp, "status", None) != 200:
         return result(NOT_200, True)
@@ -76,7 +78,7 @@ def classify(url, resp):
         return result(SOFT_404, True, tokens, soup)
     if len(tokens) < MIN_WORDS:
         return result(THIN, True, tokens, soup)
-    return result(OK, True, tokens, soup)
+    return result(OK, True, tokens, soup, simhash.fingerprint(tokens))
 
 # the url the page came from after redirects, fragment removed
 def _final_url(url, raw):

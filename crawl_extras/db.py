@@ -12,6 +12,8 @@ _SCHEMA = (
     "CREATE TABLE IF NOT EXISTS pages (page_key TEXT PRIMARY KEY, url TEXT, label TEXT, word_count INTEGER)",
     "CREATE TABLE IF NOT EXISTS words (word TEXT PRIMARY KEY, count INTEGER)",
     "CREATE TABLE IF NOT EXISTS robots (host TEXT PRIMARY KEY, robots_txt TEXT)",
+    # stored as 16 hex digits
+    "CREATE TABLE IF NOT EXISTS fingerprints (fingerprint TEXT)",
 )
 
 _lock = threading.Lock()
@@ -33,7 +35,7 @@ def open_db(restart, path=DB_PATH):
 # with db.transaction() as conn: ...   everything in the block is saved, or nothing is
 @contextmanager
 def transaction():
-    with _lock:
+    with _lock:        
         _conn.execute("BEGIN")
         try:
             yield _conn
