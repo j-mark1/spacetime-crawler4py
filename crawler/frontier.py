@@ -219,6 +219,18 @@ class Frontier(object):
 
         return not url_exists and not hash_exists
 
+    def url_can_be_added(self, url):
+        # Checks if url is unique in db
+        # Will add all unique urls (including http/https varients)
+        seen = False
+        with self.lock:
+            self.cursor.execute(
+                "SELECT EXISTS(SELECT 1 FROM unique_pages WHERE url = ?)",
+                (url, hash))
+            seen = self.cursor.fetchone()[0]
+        return not seen
+
+
     def add_unique_page_to_db(self, scheme, hostname, url, hash = ""):
         with self.lock:
             subdomain = f"{scheme.lower()}://{hostname.lower()}"

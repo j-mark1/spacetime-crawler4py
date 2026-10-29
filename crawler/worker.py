@@ -51,19 +51,20 @@ class Worker(Thread):
                 # Also ignore sites where content cannot be downloaded or where there is no content.
                 # NOTE: Crawler already traverses through redirect to retrieve redirected content, no need to check 300s status codes
                 if (resp.status == 200 and resp.raw_response and resp.raw_response.content):
+                    # Store current downloaded page (already confirmed by is_valid to be valid) into db.
+                    # Moved to this spot to consider redirected urls and ensure that the actual page of a redirected url is being stored rather than just all urls before redirect.
+                    # How? resp.raw_response.url is used to consider only redirected url (url that is actually retrieved) if redirect occurs.
+                    # As a result, only the actual page's url is processed and stored in db.
+                    parsed = urlparse(resp.raw_response.url)
+                    can_be_added = self.frontier.url_can_be_added(resp.raw_response.url)
+                    # Add before sha256
+                    if can_be_added:
+                        self.frontier.add_unique_page_to_db(parsed.scheme, parsed.hostname, resp.raw_response.url, hashed)
+
                     # Check if url can be downloaded
                     hashed = hashlib.sha256(resp.raw_response.content).hexdigest()
                     can_be_downloaded = self.frontier.url_can_be_downloaded(resp.raw_response.url, hashed)
                     if (can_be_downloaded):
-                        # Store current downloaded page (already confirmed by is_valid to be valid) into db.
-                        # Moved to this spot to consider redirected urls and ensure that the actual page of a redirected url is being stored rather than just all urls before redirect.
-                        # How? resp.raw_response.url is used to consider only redirected url (url that is actually retrieved) if redirect occurs.
-                        # As a result, only the actual page's url is processed and stored in db.
-
-
-                        parsed = urlparse(resp.raw_response.url)
-                        self.frontier.add_unique_page_to_db(parsed.scheme, parsed.hostname, resp.raw_response.url, hashed)
-
                         scraped_urls = scraper.scraper(tbd_url, resp)
                         self.logger.info(f"Completed scaper.scraper() in {time.monotonic() - start} seconds")
                         for scraped_url in scraped_urls:
