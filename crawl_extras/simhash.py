@@ -29,14 +29,9 @@ def fingerprint(tokens):
             result |= 1 << bit
     return result
 
-# number of bits that differ; x & (x - 1) clears the lowest set bit each loop
+# number of bits that differ, counts xor 1s(different bits)
 def distance(a, b):
-    different = a ^ b
-    count = 0
-    while different:
-        different &= different - 1
-        count += 1
-    return count
+    return (a ^ b).bit_count()
 
 def is_near_duplicate(a, b):
     return distance(a, b) <= MAX_DISTANCE
